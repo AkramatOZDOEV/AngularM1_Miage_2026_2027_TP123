@@ -1,13 +1,54 @@
 <section class="card">
   <h1>Créer un compte</h1>
-  <form [formGroup]="form" (ngSubmit)="submit()">
-    <label>Nom<input formControlName="name" /></label>
-    <label>Email<input type="email" formControlName="email" /></label>
-    <label>Mot de passe<input type="password" formControlName="password" /></label>
-    <button type="submit">Créer mon compte</button>
+  <form [formGroup]="form" (ngSubmit)="submit()" novalidate [attr.aria-busy]="pending()">
+    <label for="register-name">Nom
+      <input id="register-name" type="text" formControlName="name" autocomplete="name"
+        [attr.aria-invalid]="form.controls.name.touched && form.controls.name.invalid"
+        [attr.aria-describedby]="(form.controls.name.touched && form.controls.name.invalid) ? 'register-name-error' : null" />
+    </label>
+    @if (form.controls.name.touched && form.controls.name.invalid) {
+      <p id="register-name-error" class="error" aria-live="polite">
+        @if (form.controls.name.hasError('required')) {
+          Le nom est obligatoire.
+        } @else if (form.controls.name.hasError('minlength')) {
+          Le nom doit contenir au moins 2 caractères.
+        }
+      </p>
+    }
+    <label for="register-email">Email
+      <input id="register-email" type="email" formControlName="email" autocomplete="email"
+        [attr.aria-invalid]="form.controls.email.touched && form.controls.email.invalid"
+        [attr.aria-describedby]="(form.controls.email.touched && form.controls.email.invalid) ? 'register-email-error' : null" />
+    </label>
+    @if (form.controls.email.touched && form.controls.email.invalid) {
+      <p id="register-email-error" class="error" aria-live="polite">
+        @if (form.controls.email.hasError('required')) {
+          L’adresse email est obligatoire.
+        } @else if (form.controls.email.hasError('email')) {
+          Saisis une adresse email valide.
+        }
+      </p>
+    }
+    <label for="register-password">Mot de passe
+      <input id="register-password" type="password" formControlName="password" autocomplete="new-password"
+        [attr.aria-invalid]="form.controls.password.touched && form.controls.password.invalid"
+        [attr.aria-describedby]="(form.controls.password.touched && form.controls.password.invalid) ? 'register-password-error' : null" />
+    </label>
+    @if (form.controls.password.touched && form.controls.password.invalid) {
+      <p id="register-password-error" class="error" aria-live="polite">
+        @if (form.controls.password.hasError('required')) {
+          Le mot de passe est obligatoire.
+        } @else if (form.controls.password.hasError('minlength')) {
+          Le mot de passe doit contenir au moins 8 caractères.
+        }
+      </p>
+    }
+    <button type="submit" [disabled]="pending()">
+      {{ pending() ? 'Inscription en cours…' : 'Créer mon compte' }}
+    </button>
   </form>
   @if (error()) {
-    <p class="error">{{ error() }}</p>
+    <p class="error" role="alert">{{ error() }}</p>
   }
   <p><a routerLink="/login">Déjà inscrit ?</a></p>
 </section>

@@ -18,6 +18,9 @@ const schema = new mongoose.Schema(
     storedName: { type: String, required: true, select: false },
     mimeType: { type: String, required: true },
     size: { type: Number, required: true, min: 0 },
+    // Le nom physique reste privé ; la date publique indique si une couverture existe.
+    coverStoredName: { type: String, select: false },
+    coverUpdatedAt: { type: Date, default: null },
   },
   { timestamps: true },
 );
@@ -39,6 +42,8 @@ schema.methods.toPublic = function () {
     mimeType: this.mimeType,
     size: this.size,
     createdAt: this.createdAt,
+    // Les anciennes pistes sans image restent compatibles avec le frontend.
+    coverUpdatedAt: this.coverUpdatedAt ?? null,
   };
 };
 

@@ -1,0 +1,10 @@
+<!-- Annuler conserve le morceau ; seule la confirmation renvoie true au composant. -->
+<h2 mat-dialog-title>Supprimer ce morceau ?</h2>
+<mat-dialog-content>
+  <p>{{ title }}</p>
+  <p>Le fichier audio et sa couverture seront supprimés. Cette action est définitive.</p>
+</mat-dialog-content>
+<mat-dialog-actions align="end">
+  <button mat-button [mat-dialog-close]="false" cdkFocusInitial>Annuler</button>
+  <button mat-button class="danger" [mat-dialog-close]="true">Supprimer</button>
+</mat-dialog-actions>

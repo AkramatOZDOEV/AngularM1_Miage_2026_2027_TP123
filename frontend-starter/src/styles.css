@@ -1,3 +1,5 @@
+/* Le thème Material fournit le style du Paginator et du dialogue de confirmation. */
+@import '@angular/material/prebuilt-themes/azure-blue.css';
 :root {
   font-family: Inter, system-ui, sans-serif;
   color: #17312a;

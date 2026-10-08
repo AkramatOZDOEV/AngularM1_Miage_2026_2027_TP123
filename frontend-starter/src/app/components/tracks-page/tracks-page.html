@@ -1,44 +1,114 @@
-<section>
+<section aria-labelledby="library-title">
   <div class="hero">
     <p class="eyebrow">MA BIBLIOTHÈQUE</p>
-    <h1>Backing tracks</h1>
+    <h1 id="library-title">Backing tracks</h1>
     <p>Importez, retrouvez et écoutez vos morceaux de travail.</p>
   </div>
-
   <div class="grid">
-    <article class="card">
-      <h2>Importer</h2>
-      <label>Titre<input [formControl]="title" /></label>
-      <label>Fichier audio<input type="file" accept="audio/*" (change)="choose($event)" /></label>
-      <button type="button" (click)="upload()" [disabled]="!file">Envoyer</button>
+    <article class="card upload-card">
+      <h2>Importer un morceau</h2>
+      <!-- La soumission au clavier utilise le contrôle natif pour vider aussi le fichier après succès. -->
+      <form [formGroup]="uploadForm" (ngSubmit)="upload(audioInput, coverInput)" [attr.aria-busy]="uploading()">
+        <label for="track-title">Titre <small>(facultatif)</small></label>
+        <input id="track-title" [formControl]="title" [readOnly]="uploading()" placeholder="Titre du morceau" />
+        <label for="track-file">Fichier audio</label>
+        <!-- accept aide au choix ; le TypeScript contrôle aussi le fichier avant HTTP. -->
+        <input #audioInput id="track-file" type="file" accept="audio/mpeg,audio/wav,audio/x-wav,audio/ogg,audio/mp4,audio/x-m4a"
+          (change)="choose($event)" [disabled]="uploading()" aria-describedby="file-help file-error"
+          [attr.aria-invalid]="!!fileError()" />
+        <p id="file-help" class="muted">MP3, WAV, OGG, M4A. Maximum : 25 Mo.</p>
+        @if (selectedFile(); as file) {
+          <!-- Afficher le fichier choisi et sa taille facilite la vérification avant envoi. -->
+          <p class="selected-file">{{ file.name }} · {{ formatSize(file.size) }}</p>
+        }
+        <p id="file-error" class="error" role="alert">{{ fileError() }}</p>
+        <!-- L'image est facultative et doit appartenir à l'utilisateur ou être autorisée. -->
+        <label for="cover-file">Couverture <small>(facultative)</small></label>
+        <input #coverInput id="cover-file" type="file" accept="image/jpeg,image/png"
+          (change)="chooseCover($event)" [disabled]="uploading()" aria-describedby="cover-help cover-error" />
+        <p id="cover-help" class="muted">JPEG ou PNG, 5 Mo et 4 mégapixels maximum. Utilise une image personnelle ou autorisée.</p>
+        <p id="cover-error" class="error" role="alert">{{ coverError() }}</p>
+        <!-- Le progress suit les octets transmis ; le serveur peut encore traiter le fichier à 100 %. -->
+        @if (uploading()) {
+          <label for="upload-progress">{{ coverBusy() ? 'Envoi de la couverture...' : (uploadProgress() === 100 ? 'Enregistrement...' : 'Envoi du morceau...') }}</label>
+          <progress id="upload-progress" max="100" [attr.value]="coverBusy() ? null : uploadProgress()"></progress>
+          @if (uploadProgress() !== null && !coverBusy()) { <span role="status">{{ uploadProgress() }} % envoyé</span> }
+        }
+        <!-- L'attente annoncée et le bouton désactivé évitent les envois répétés. -->
+        <button type="submit" [disabled]="!selectedFile() || !!fileError() || !!coverError() || uploading() || !!coverBusy() || !!deleting()">
+          {{ uploading() ? 'Envoi en cours…' : 'Envoyer le morceau' }}
+        </button>
+        @if (uploadError()) { <p class="error" role="alert">{{ uploadError() }}</p> }
+        @if (uploadSuccess()) { <p class="success" role="status">{{ uploadSuccess() }}</p> }
+      </form>
     </article>
-
-    <article class="card">
+    <article class="card library-card" [attr.aria-busy]="loading()">
       <div class="row">
         <h2>Mes pistes</h2>
-        <button type="button" (click)="load()">Actualiser</button>
+        <!-- Éviter un rafraîchissement concurrent pendant la lecture de la liste. -->
+        <button type="button" (click)="load()" [disabled]="loading() || !!deleting()">Actualiser</button>
       </div>
+      <!-- Les actions sur une card ont leurs propres messages, indépendants de l'import. -->
+      @if (actionError()) { <p class="error" role="alert">{{ actionError() }}</p> }
+      @if (actionSuccess()) { <p class="success" role="status">{{ actionSuccess() }}</p> }
       @if (loading()) {
-        <p>Chargement…</p>
-      }
-      @for (track of tracks(); track track.id) {
-        <div class="track">
-          <div>
-            <b>{{ track.title }}</b>
-            <small>{{ track.originalName }} · {{ track.size }} Ko</small>
-          </div>
-          <button type="button" (click)="play(track)" [attr.aria-label]="'Lire ' + track.title">▶</button>
+        <p role="status">Chargement des pistes…</p>
+      } @else if (loadError()) {
+        <p class="error" role="alert">{{ loadError() }}</p>
+      } @else {
+        <!-- Chaque card présente les métadonnées et une action identifiée par son titre. -->
+        <div class="track-cards">
+          @for (track of tracks(); track track.id) {
+            <article class="track-card" [class.selected]="currentTrack()?.id === track.id">
+              <!-- L'image privée vient d'un Blob authentifié ; le titre voisin la rend décorative. -->
+              @if (coverUrls()[track.id]; as url) {
+                <img class="cover" [src]="url" alt="" width="320" height="200" />
+              } @else {
+                <div class="cover-placeholder">{{ coverFailures()[track.id] ? 'Image indisponible' : 'Sans couverture' }}</div>
+              }
+              <h3>{{ track.title }}</h3>
+              <p class="filename">{{ track.originalName }}</p>
+              <dl>
+                <div><dt>Format</dt><dd>{{ track.mimeType }}</dd></div>
+                <div><dt>Taille</dt><dd>{{ formatSize(track.size) }}</dd></div>
+                <div><dt>Ajouté le</dt><dd>{{ track.createdAt | date:'dd/MM/yyyy' }}</dd></div>
+              </dl>
+              <div class="track-actions">
+                <button type="button" (click)="play(track)" [disabled]="audioLoading() || !!deleting()" [attr.aria-label]="'Lire ' + track.title">Lire</button>
+                <!-- Le bouton ouvre une confirmation avant l'appel DELETE. -->
+                <button type="button" class="danger" (click)="confirmDelete(track)"
+                  [disabled]="!!deleting() || !!coverBusy() || uploading() || confirmingDelete()"
+                  [attr.aria-label]="'Supprimer ' + track.title">{{ deleting() === track.id ? 'Suppression...' : 'Supprimer' }}</button>
+              </div>
+              <!-- Un champ par card permet d'ajouter, remplacer ou réessayer une couverture. -->
+              <label [for]="'cover-' + track.id">{{ track.coverUpdatedAt ? 'Changer la couverture' : 'Ajouter une couverture' }}</label>
+              <input [id]="'cover-' + track.id" type="file" accept="image/jpeg,image/png"
+                (change)="changeCover(track, $event)" [disabled]="!!coverBusy() || !!deleting() || uploading()" />
+              @if (coverBusy() === track.id) { <p role="status">Envoi de la couverture...</p> }
+              @if (currentTrack()?.id === track.id) {
+                <span class="track-state">{{ audioLoading() ? 'Chargement...' : (playing() ? 'En lecture' : 'Sélectionné') }}</span>
+              }
+            </article>
+          } @empty {
+            <p>Aucune piste.</p>
+          }
         </div>
-      } @empty {
-        <p>Aucune piste.</p>
       }
-      <div class="pager">
-        <button type="button" (click)="go(page() - 1)" [disabled]="page() === 1">Préc.</button>
-        <span>Page {{ page() }} / {{ pages() }}</span>
-        <button type="button" (click)="go(page() + 1)" [disabled]="page() === pages()">Suiv.</button>
-      </div>
-      @if (audioUrl()) {
-        <audio [src]="audioUrl()" controls autoplay></audio>
+      <!-- Material émet une nouvelle requête serveur à chaque page ou taille choisie. -->
+      <mat-paginator [length]="total()" [pageIndex]="page() - 1" [pageSize]="limit()"
+        [pageSizeOptions]="[5, 10, 20]" [disabled]="loading() || !!deleting()" showFirstLastButtons
+        (page)="paginate($event)" aria-label="Pages de la bibliothèque" />
+      <!-- Les événements distinguent la lecture effective du simple téléchargement. -->
+      @if (currentTrack(); as track) {
+        <section class="player" aria-labelledby="player-title">
+          <h3 id="player-title">{{ playing() ? 'En lecture' : 'Lecture' }} : {{ track.title }}</h3>
+          @if (audioLoading()) { <p role="status">Téléchargement de l’audio…</p> }
+          @if (audioError()) { <p class="error" role="alert">{{ audioError() }}</p> }
+          @if (audioUrl()) {
+            <audio [src]="audioUrl()" controls autoplay [attr.aria-label]="'Lecteur : ' + track.title"
+              (playing)="playing.set(true)" (pause)="playing.set(false)" (ended)="playing.set(false)" (error)="audioFailed()"></audio>
+          }
+        </section>
       }
     </article>
   </div>

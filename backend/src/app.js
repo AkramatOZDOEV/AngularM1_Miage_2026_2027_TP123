@@ -6,6 +6,8 @@ import fs from "node:fs";
 import fsPromises from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
+// La conversion JavaScript vérifie l'image sans module natif bloqué par Windows.
+import { convertCover } from './cover-image.js';
 import { User } from "./models/User.js";
 import { Track } from "./models/Track.js";
 
@@ -29,6 +31,23 @@ const SECRET = process.env.JWT_SECRET || "tp1-development-secret";
 // La taille maximale d'un fichier audio est de 25 Mo. Les fichiers plus gros
 // sont refusés par Multer avant d'être écrits sur le disque.
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
+
+// Un seul fichier image de 5 Mo maximum est conservé en mémoire avant conversion.
+const coverUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 0 },
+  fileFilter: (_req, file, callback) => callback(
+    ['image/jpeg', 'image/png'].includes(file.mimetype) ? null : new Error('Couverture invalide'),
+    true,
+  ),
+});
+
+// Nettoyer un fichier manquant est sans effet ; toute autre erreur est transmise.
+async function removeFile(filename) {
+  if (!filename) return;
+  try { await fsPromises.unlink(path.join(UPLOADS, filename)); }
+  catch (error) { if (error.code !== 'ENOENT') throw error; }
+}
 
 // Les types MIME autorisés correspondent aux formats demandés dans le sujet.
 const allowed = new Set([
@@ -287,7 +306,7 @@ export function createApp() {
           .sort({ createdAt: -1 })
           .skip((page - 1) * limit)
           .limit(limit)
-          .select("-storedName")
+          .select("-storedName -coverStoredName")
           .lean(),
         Track.countDocuments(filter),
       ]);
@@ -375,6 +394,64 @@ export function createApp() {
     },
   );
 
+  // Autoriser l'image uniquement pour une piste appartenant à l'utilisateur connecté.
+  async function ownedCover(req, res, next) {
+    try {
+      const track = await Track.findOne({ _id: req.params.id, ownerId: req.auth.sub }).select('+coverStoredName');
+      if (!track) return res.status(404).json({ message: 'Piste inconnue' });
+      req.coverTrack = track;
+      next();
+    } catch (error) { console.error('[cover] Vérification impossible', error.name); next(error); }
+  }
+
+  // Décoder le contenu réel avant d'enregistrer un JPEG de 800 pixels maximum.
+  app.put('/api/tracks/:id/cover', auth, ownedCover, coverUpload.single('cover'), async (req, res, next) => {
+    if (!req.file) return res.status(400).json({ message: 'Image requise' });
+    // Toute erreur de décodage donne 400, même si la bibliothèque fournit un code d'erreur interne.
+    let output;
+    try { output = convertCover(req.file.buffer, req.file.mimetype); }
+    catch (error) {
+      console.warn('[cover] Image refusée', error.name);
+      return res.status(400).json({ message: 'Image invalide ou dimensions trop grandes' });
+    }
+    let filename;
+    // Après validation MongoDB, ne jamais retirer le nouveau fichier dans un traitement d'erreur tardif.
+    let committed = false;
+    try {
+      filename = crypto.randomUUID() + '.jpg';
+      await fsPromises.writeFile(path.join(UPLOADS, filename), output, { flag: 'wx' });
+      // Une mise à jour atomique empêche une couverture orpheline si la piste est supprimée entre-temps.
+      const previous = await Track.findOneAndUpdate(
+        { _id: req.params.id, ownerId: req.auth.sub },
+        { $set: { coverStoredName: filename, coverUpdatedAt: new Date() } },
+        { new: false, runValidators: true },
+      ).select('+coverStoredName');
+      if (!previous) { await removeFile(filename); return res.status(404).json({ message: 'Piste inconnue' }); }
+      committed = true;
+      try { await removeFile(previous.coverStoredName); }
+      catch (error) { console.error('[cover] Ancienne image non supprimée', error.code); }
+      const updated = await Track.findById(previous.id);
+      if (!updated) return res.status(404).json({ message: 'Piste inconnue' });
+      res.json(updated.toPublic());
+    } catch (error) {
+      if (filename && !committed) {
+        try { await removeFile(filename); }
+        catch (cleanupError) { console.error('[cover] Nettoyage impossible', cleanupError.code); }
+      }
+      console.error('[cover] Import refusé', error.name);
+      next(error);
+    }
+  });
+
+  // La couverture ne peut pas être téléchargée publiquement ni par un autre compte.
+  app.get('/api/tracks/:id/cover', auth, ownedCover, (req, res, next) => {
+    if (!req.coverTrack.coverStoredName) return res.status(404).json({ message: 'Couverture absente' });
+    res.set('Cache-Control', 'private, no-store');
+    res.type('image/jpeg').sendFile(path.join(UPLOADS, req.coverTrack.coverStoredName), (error) => {
+      if (error && !res.headersSent) next(error);
+    });
+  });
+
   /** Envoie le contenu binaire d'une piste après vérification de sa propriété. */
   app.get("/api/tracks/:id/audio", auth, async (req, res, next) => {
     try {
@@ -411,7 +488,7 @@ export function createApp() {
       const track = await Track.findOneAndDelete({
         _id: req.params.id,
         ownerId: req.auth.sub,
-      }).select("+storedName");
+      }).select("+storedName +coverStoredName");
 
       if (!track) {
         console.warn(`[tracks] Suppression impossible : ${req.params.id}`);
@@ -420,7 +497,9 @@ export function createApp() {
 
       const audioPath = path.join(UPLOADS, track.storedName);
       try {
-        await fsPromises.unlink(audioPath);
+        // La suppression retire aussi la couverture associée à la piste.
+        await removeFile(track.storedName);
+        await removeFile(track.coverStoredName);
         console.log(`[tracks] Fichier supprimé : ${audioPath}`);
       } catch (error) {
         // L'exception n'est volontairement pas ignorée : l'administrateur doit
@@ -444,7 +523,7 @@ export function createApp() {
 
     if (
       error instanceof multer.MulterError ||
-      error?.message === "Format audio non accepté"
+      error?.message === "Format audio non accepté" || error?.message === 'Couverture invalide'
     ) {
       return res.status(400).json({ message: error.message });
     }

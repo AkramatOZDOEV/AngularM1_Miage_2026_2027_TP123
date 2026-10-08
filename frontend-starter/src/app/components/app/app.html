@@ -6,7 +6,12 @@
   <nav aria-label="Navigation principale">
     <a routerLink="/tracks">Backing tracks</a>
     <a routerLink="/profile">Profil</a>
-    <a routerLink="/login">Connexion</a>
+    <!-- Affiche la déconnexion si un token est présent ; sinon, propose la connexion. -->
+    @if (auth.token()) {
+      <button type="button" (click)="logout()">Se déconnecter</button>
+    } @else {
+      <a routerLink="/login">Connexion</a>
+    }
   </nav>
 </header>
 
