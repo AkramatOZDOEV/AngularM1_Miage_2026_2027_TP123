@@ -11,6 +11,8 @@ import { TrackService } from '../../shared/services/track.service';
 import { MatPaginatorIntl, MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { MatDialog } from '@angular/material/dialog';
 import { DeleteDialogComponent } from '../delete-dialog/delete-dialog';
+// SnackBar affiche un retour bref sans déplacer le contenu de la bibliothèque.
+import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 
 // Les libellés et les annonces du Paginator sont disponibles en français.
 function frenchPaginator(): MatPaginatorIntl {
@@ -26,7 +28,7 @@ function frenchPaginator(): MatPaginatorIntl {
 
 @Component({
   // DatePipe rend la date des pistes lisible dans le template.
-  imports: [ReactiveFormsModule, DatePipe, MatPaginatorModule],
+  imports: [ReactiveFormsModule, DatePipe, MatPaginatorModule, MatSnackBarModule],
   // Cette traduction reste locale à la bibliothèque.
   providers: [{ provide: MatPaginatorIntl, useFactory: frenchPaginator }],
   templateUrl: './tracks-page.html',
@@ -36,6 +38,8 @@ export class TracksPageComponent {
   private readonly service = inject(TrackService);
   // Le dialogue demande un accord explicite avant toute suppression.
   private readonly dialog = inject(MatDialog);
+  // Les résultats de suppression sont annoncés dans un composant Material dédié.
+  private readonly snackBar = inject(MatSnackBar);
   // Ce contexte annule les requêtes et libère l'URL au départ de la page.
   private readonly destroyRef = inject(DestroyRef);
   private listRequest?: Subscription;
@@ -315,7 +319,11 @@ export class TracksPageComponent {
           this.confirmingDelete.set(false);
           if (confirmed === true) this.deleteTrack(track);
         },
-        error: () => { this.confirmingDelete.set(false); this.actionError.set('Confirmation indisponible.'); },
+        error: () => {
+          this.confirmingDelete.set(false);
+          // La fermeture anormale du dialogue ne déclenche aucun DELETE.
+          this.notify('Confirmation indisponible. Réessaie plus tard.');
+        },
       });
   }
 
@@ -327,16 +335,29 @@ export class TracksPageComponent {
     this.service.remove(track.id).pipe(takeUntilDestroyed(this.destroyRef), finalize(() => this.deleting.set(''))).subscribe({
       next: () => {
         if (this.currentTrack()?.id === track.id) { this.releaseAudio(); this.currentTrack.set(null); this.audioError.set(''); }
-        this.actionSuccess.set('Morceau supprimé.');
+        // Le SnackBar confirme le 204 sans modifier la mise en page des cards.
+        this.notify('Morceau supprimé.');
         this.load();
       },
       error: (error: HttpErrorResponse) => {
         console.error('[TracksPage] Suppression impossible', error.status);
-        this.actionError.set(this.httpMessage(error, 'supprimer ce morceau'));
-        // Un 500 peut suivre une suppression MongoDB réussie avec nettoyage disque incomplet.
+        // Le 404 couvre une piste supprimée ailleurs ou une piste qui appartient à un autre compte.
+        this.notify(this.deleteMessage(error));
+        // Un 404 ou 500 peut laisser une card périmée : recharger restaure l'état du serveur.
         this.load();
       },
     });
+  }
+
+  private notify(message: string): void {
+    // L'action Fermer laisse le temps de lire le résultat au clavier ou à la souris.
+    this.snackBar.open(message, 'Fermer', { duration: 5000 });
+  }
+
+  private deleteMessage(error: HttpErrorResponse): string {
+    // Le backend ne distingue volontairement pas l'absence de la piste de l'absence de droit.
+    if (error.status === 404) return 'Ce morceau n’est plus disponible. La bibliothèque est actualisée.';
+    return this.httpMessage(error, 'supprimer ce morceau');
   }
 
   private httpMessage(error: HttpErrorResponse, action: string): string {
