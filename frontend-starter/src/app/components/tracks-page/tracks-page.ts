@@ -186,14 +186,17 @@ export class TracksPageComponent {
     const cover = this.selectedCover();
     this.service.upload(file, title).pipe(
       takeUntilDestroyed(this.destroyRef),
+      // Libérer le formulaire après succès ou erreur, sauf si la couverture est encore en cours.
       finalize(() => { if (!this.coverBusy()) this.uploading.set(false); }),
     ).subscribe({
       next: (event) => {
         // 100 % signifie transfert envoyé ; la réponse HTTP confirme l'enregistrement.
         if (event.type === HttpEventType.UploadProgress) {
+          // Pourcentage = octets envoyés / octets totaux ; sans total, garder un état indéterminé.
           this.uploadProgress.set(event.total ? Math.round(100 * event.loaded / event.total) : null);
           return;
         }
+        // Seule la réponse finale confirme la création ; ignorer les autres événements HTTP.
         if (event.type !== HttpEventType.Response || !event.body) return;
         const track = event.body;
         // Le succès vide le champ fichier natif et Angular, puis recharge la première page.

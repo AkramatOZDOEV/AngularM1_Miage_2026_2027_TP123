@@ -15,10 +15,11 @@ export class TrackService {
   }
 
   upload(file: File, title: string) {
+    // FormData regroupe les champs ; le navigateur définit la séparation multipart.
     const body = new FormData();
     body.append('audio', file);
     body.append('title', title);
-    // Les événements HTTP distinguent progression du transfert et réponse finale.
+    // observe: 'events' reçoit les étapes HTTP ; reportProgress active les mesures du transfert.
     return this.http.post<Track>('/api/tracks', body, { observe: 'events', reportProgress: true });
   }
 
