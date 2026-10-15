@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.json",
+  // Compiler les tests dans un contexte distinct.
+  "compilerOptions": { "outDir": "./out-tsc/spec", "types": [] },
+  "include": ["src/**/*.spec.ts", "src/**/*.d.ts"]
+}
