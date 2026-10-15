@@ -1,4 +1,4 @@
-# Rapport d'usage de l'IA — TP1 et TP2
+# Rapport d'usage de l'IA — TP1, TP2 et TP3
 
 ## TP1 — Architecture, authentification et profil
 
@@ -336,3 +336,139 @@ Cette preuve antérieure vient d'un vrai refus backend après modification du MI
 Les comptes, pistes et scripts temporaires de cette nouvelle campagne sont supprimés après les essais ; seules les six captures et ce bilan restent. Les anciennes captures de mission 3 sont conservées comme preuves historiques. L'installation a signalé des alertes de dépendances : les correctifs compatibles de Multer/proxy-addr ont été appliqués (audit backend : 0). L'audit frontend hors dépendances de développement conserve une alerte concernant le routeur Angular et le rendu SSR, qui n'est pas utilisé dans ce projet ; aucune mise à jour générale d'Angular n'est revendiquée.
 
 Les commentaires expliquent les blocs de code. Le rapport de suivi détaille les méthodes et les tests à reproduire ; il reste nécessaire de pouvoir reformuler le flux personnellement, sans attribuer les tests automatiques à l'étudiant.
+
+
+## TP3 — Fiabilisation et enrichissement du frontend
+
+Travail réalisé les 14 et 15 octobre 2026. Cette partie suit l'ordre de `SUJET_ETUDIANT_TP3.md`. Les développements détaillés de préparation à l'oral sont conservés dans le suivi personnel, séparé du rendu.
+
+### 1. Prérequis et utilisation de l'IA
+
+Le contrat `API_CONTRACT.md` a été relu. La suppression confirmée et la progression existaient déjà à la fin du TP2 : elles ont été reprises et vérifiées, sans les présenter comme entièrement nouvelles. Les routes backend n'ont pas été modifiées pour les missions obligatoires du TP3.
+
+**Outil utilisé :** Codex. Le modèle exact utilisé pour cette partie n'a pas été relevé ; la déclaration du TP1 ne constitue pas une mesure pour le TP3.
+
+**Demandes reformulées :** suivre les missions dans l'ordre, expliquer les fichiers et commenter les ajouts, utiliser SnackBar, vérifier la progression, ajouter des tests ciblés sans remplacer l'existant, puis conserver les preuves demandées. L'assistant a proposé et modifié le code autorisé, exécuté les tests et produit les captures d'interface. L'étudiant a discuté les choix, réalisé les vérifications Network finales et fourni leurs captures.
+
+### 2. Mission 5 — Suppression d'une piste
+
+#### Composant, service et réalisation
+
+Le composant concerné est `frontend-starter/src/app/components/tracks-page/tracks-page.ts`, avec son template `tracks-page.html`. Il appelle `remove(id)` dans `frontend-starter/src/app/shared/services/track.service.ts`. Le composant ne contacte pas directement HttpClient.
+
+| Exigence | Réalisation |
+| --- | --- |
+| Action Supprimer dans chaque card | Bouton associé à la piste, présent depuis le TP2. |
+| Confirmation | `confirmDelete()` ouvre `DeleteDialogComponent`. Annuler ne déclenche aucun DELETE. |
+| État de suppression | `deleting()` bloque les actions répétées pendant la requête. |
+| Succès ou erreur avec Angular SnackBar | Ajout de MatSnackBar et de `notify()`. Le succès 204 affiche « Morceau supprimé. ». |
+| Mise à jour de la page | `load()` recharge la liste après le résultat ; les bornes de pagination sont recalculées. |
+| Piste absente ou appartenant à un autre compte | Le 404 affiche un message de ressource indisponible puis recharge la liste. Le serveur ne révèle pas lequel des deux cas s'est produit. |
+
+![Suppression réussie](docs/images/tp3/mission5/suppression-reussie.png)
+
+Cette capture d'interface montre le retour après suppression. L'essai automatisé sur un compte temporaire a observé DELETE 204 puis la disparition de la piste.
+
+![Piste devenue indisponible](docs/images/tp3/mission5/piste-indisponible.png)
+
+Pour cet essai, la piste a été supprimée par une autre requête après ouverture du dialogue. Le DELETE de l'interface a reçu 404 ; le message et le rechargement ont été vérifiés. Les données temporaires ont ensuite été supprimées.
+
+#### Pourquoi le guard et l'interface ne suffisent-ils pas à sécuriser la suppression ?
+
+Le guard contrôle la navigation dans Angular et les boutons guident l'utilisateur. Ils s'exécutent sur son appareil et peuvent être contournés en envoyant une requête HTTP directement. Dans `backend/src/app.js`, le middleware `auth` vérifie la signature et l'expiration du JWT. La suppression utilise ensuite `Track.findOneAndDelete({ _id: req.params.id, ownerId: req.auth.sub })` : la piste doit appartenir à l'utilisateur identifié par le token. Un JWT absent ou invalide produit 401 ; une piste absente ou interdite produit 404. C'est ce contrôle serveur qui fait autorité.
+
+### 3. Mission 6 — Progression de l'upload
+
+La fonctionnalité existait au TP2. Le TP3 a ajouté des commentaires explicatifs dans `track.service.ts` et `tracks-page.ts` et des preuves ciblées.
+
+- Au repos : pas de progression affichée.
+- Pendant l'envoi : `uploading()` active l'attente, les champs concernés sont bloqués et une seconde soumission est refusée.
+- Progression : `Math.round(100 * loaded / total)` ; sans total connu, indicateur indéterminé.
+- Réussite : seule la réponse finale confirme la création, vide le formulaire et recharge la liste.
+- Échec : message adapté, fin de l'attente et conservation de la saisie pour réessayer.
+
+![Progression réelle à 25 pour cent](docs/images/tp3/mission6/progression-upload.png)
+
+Le transfert réel a été ralenti dans la session de navigateur automatisée. Le double envoi a été bloqué. Le POST s'est terminé avec le statut 201 ; le formulaire vidé et la piste créée sont visibles dans la [capture de succès](docs/images/tp3/mission6/upload-reussi.png).
+
+![Erreur d'upload](docs/images/tp3/mission6/upload-erreur.png)
+
+Le MIME du multipart a volontairement été modifié dans la requête de test pour provoquer un vrai refus 400 du backend. Cette capture ne représente pas un refus normal d'un MP3 valide. Le formulaire est redevenu disponible et la saisie a été conservée.
+
+#### Pourquoi un upload avec progression ne se traite-t-il pas comme une réponse finale unique ?
+
+Une requête observée sous sa forme habituelle fournit le corps de la réponse finale. Avec `observe: 'events'` et `reportProgress: true`, le même Observable peut émettre plusieurs étapes : envoi, progression, puis réponse. `withXhr()` dans `main.ts` fournit ici les événements de progression d'upload. Le composant examine `event.type` : `UploadProgress` actualise le pourcentage et `Response` confirme la réussite. Atteindre 100 % signifie que les octets ont été envoyés, mais le serveur peut encore traiter le fichier ou le refuser. Les journaux du composant conservent le statut HTTP, sans afficher de JWT ou de mot de passe.
+
+### 4. Mission 7 — Tests automatisés
+
+#### Fichiers et configuration
+
+Six tests ont été ajoutés, sans remplacer les deux tests backend existants :
+
+- `frontend-starter/src/app/shared/services/track.service.spec.ts` : pagination.
+- `frontend-starter/src/app/shared/interceptors/auth.interceptor.spec.ts` : Authorization avec et sans token.
+- `frontend-starter/src/app/components/tracks-page/tracks-page.spec.ts` : suppression, annulation et upload.
+
+Vitest était déjà configuré. `jsdom` a été ajouté aux dépendances de développement pour simuler le DOM. La cible `test` de `angular.json` pointe vers `gpc:build` et `tsconfig.spec.json`, car aucune configuration de build nommée `development` n'existait. `tsconfig.app.json` exclut les fichiers `.spec.ts` du build applicatif. La commande start, la cible serve et le proxy restent inchangés.
+
+`provideHttpClientTesting()` remplace le transport réseau. Les tests vérifient les URL, méthodes, paramètres, headers et réponses simulées avec `HttpTestingController`. Aucun backend ni MongoDB en fonctionnement n'est nécessaire. Le composant et TrackService sont réels ; les dialogues et le SnackBar sont remplacés par des doublures de test.
+
+#### Rapport des tests — Résultats du 15 octobre 2026
+
+| Test | Résultat attendu | Résultat observé |
+| --- | --- | --- |
+| Pagination | GET `/api/tracks?page=2&limit=5`, paramètres corrects et réponse transmise au souscripteur | Réussi |
+| Intercepteur avec token fictif | Authorization Bearer ajouté sur une route protégée | Réussi |
+| Intercepteur sans token | Aucun header Authorization | Réussi |
+| Suppression confirmée | DELETE avec identifiant correct ; double clic bloqué ; après 204, GET de liste, liste vide et message SnackBar | Réussi |
+| Suppression annulée | Aucun DELETE, piste conservée | Réussi |
+| Upload | POST multipart avec audio/title ; 25 % pour 25/100 octets ; double envoi bloqué ; erreur 400 affichée et saisie conservée | Réussi |
+| Backend existant : santé | GET health répond sans dépendre de MongoDB | Réussi |
+| Backend existant : schémas | Vérifications des schémas Mongoose et de leur relation | Réussi |
+
+**Bilan : 6/6 tests frontend, 2/2 tests backend.** Les ports 3000 et 4200 n'avaient pas de serveur applicatif à l'écoute pendant la validation des tests. L'extension backend facultative de la mission 7 n'a pas été réalisée.
+
+**Difficultés et vérification des propositions IA :** les premiers essais de tests ont révélé une doublure SnackBar non utilisée et un sélecteur qui lisait une autre zone d'alerte. Les tests ont été corrigés avec `overrideProvider` et une recherche dans les zones d'alerte. Le code métier n'a pas été modifié pour faire passer les assertions. Les tests ne démontrent pas la sécurité réelle du serveur ni l'écriture des fichiers sur disque ; ces propriétés nécessitent des essais d'intégration.
+
+### 5. Vérifications finales
+
+Commandes exécutées depuis la racine du projet :
+
+```powershell
+npm.cmd --prefix frontend-starter test
+npm.cmd --prefix backend test
+npm.cmd --prefix frontend-starter run build
+```
+
+Les tests et le build ont réussi. Le démarrage avec `npm.cmd start` depuis `frontend-starter` a aussi été vérifié : page `/login` servie en HTTP 200, titre Connexion visible, aucune erreur JavaScript non interceptée lors de cette ouverture.
+
+#### Suppression dans Network
+
+![Network DELETE 204](docs/images/tp3/verificationFinale/delete.png)
+
+Capture fournie par l'étudiant : méthode DELETE, domaine localhost:4200 et statut 204. Le cadrage ne montre pas le chemin complet ni la confirmation ; ceux-ci sont documentés par le code et les essais de mission 5.
+
+#### Upload dans Network
+
+![Network POST 201](docs/images/tp3/verificationFinale/upload.png)
+
+Capture fournie par l'étudiant : POST vers `tracks`, statut 201. La capture de progression de mission 6 complète cette preuve : la ligne Network terminée ne montre pas elle-même les événements Angular intermédiaires.
+
+#### Console
+
+![Console après les vérifications](docs/images/tp3/verificationFinale/console.png)
+
+La portion visible contient les messages de connexion Vite et « Connexion réussie ». Aucune erreur ni valeur secrète n'est visible. Cette observation porte sur la capture fournie, pas sur tous les scénarios possibles de l'application.
+
+### 6. Livrables TP3 — Dans l'ordre du sujet
+
+| Livrable | Élément fourni |
+| --- | --- |
+| Suppression fonctionnelle | Mission 5 : confirmation, SnackBar, rechargement et gestion du 404 ; preuve Network 204. |
+| Progression ou état d'upload | Mission 6 : pourcentage, blocage des contrôles, réussite et erreur ; captures associées. |
+| Au moins trois tests frontend | Six tests dans trois fichiers `.spec.ts`. |
+| Rapport des tests, attendu et observé | Tableau de la mission 7 ci-dessus. |
+| Captures Network suppression et upload | Images DELETE 204 et POST 201 dans les vérifications finales. |
+| Build exécuté | Compilation réussie le 15 octobre 2026. |
+| Rapport IA | Présente section : demandes reformulées, réalisations, vérifications, difficultés et limites. |
+
