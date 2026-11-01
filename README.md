@@ -9,7 +9,6 @@ Ce dépôt contient uniquement les ressources nécessaires aux trois TP :
 - un compte MongoDB Atlas par binôme ;
 - Git et un navigateur récent.
 - Un IDE de qualité
-- Recommandé : un abonnement à un 
 
 Consulter [ATLAS_SETUP.md](ATLAS_SETUP.md) pour créer la base de données.
 
@@ -47,7 +46,7 @@ Ouvrir `http://localhost:4200`. Le compte de démonstration est
 
 - [SUJET_ETUDIANT_TP1.md](SUJET_ETUDIANT_TP1.md), [SUJET_ETUDIANT_TP2.md](SUJET_ETUDIANT_TP2.md) et [SUJET_ETUDIANT_TP3.md](SUJET_ETUDIANT_TP3.md) : missions des trois séances ;
 - [API_CONTRACT.md](API_CONTRACT.md) : endpoints, authentification et formats échangés ;
-- [RAPPORT_IA_MODELE.md](RAPPORT_IA_MODELE.md) : modèle de compte rendu.
+- [RAPPORT_IA_MODELE.md](RAPPORT_IA_MODELE.md) : rapport des TP1, TP2 et TP3 : réalisations, usage de l’IA, vérifications et captures.
 - [CONSEILS_POUR_UTIISER_ASSISTANT_AI.md](CONSEILS_POUR_UTIISER_ASSISTANT_AI.md) : utiliser correctement un assistant IA, quel que soit l’outil choisi.
 
 Le backend contient également ses propres consignes pour les assistants :
